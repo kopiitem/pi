@@ -1,0 +1,35 @@
+# Smart Car
+
+== This implementation has 2 function such as:
+* By Automatic or self driving with ultrasonic sensor detection
+* By manual with control via keyboard
+
+
+== Smart-car project build with:
+ * Raspberry pi 3B+
+ * Driver motor l298n
+ * Ultrasonic sensor HC-SR04
+ * Servo Motor
+ * Pi4J (Lib to communicate with GPIO pin)
+
+== Add maven plugin to run remotely from ssh
+[source]
+----
+      <plugins>
+         <plugin>
+            <groupId>org.rogueware.mojo</groupId>
+            <artifactId>ssh-exec-maven-plugin</artifactId>
+            <version>1.2</version>
+            <configuration>
+               <sshHost>192.168.1.16</sshHost>
+               <sshUsername>pi</sshUsername>
+               <sshPassword>pi</sshPassword>
+               <sudo>true</sudo>
+            </configuration>
+         </plugin>
+      </plugins>
+
+----
+
+
+
