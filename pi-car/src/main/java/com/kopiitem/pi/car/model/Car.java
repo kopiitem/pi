@@ -3,8 +3,6 @@ package com.kopiitem.pi.car.model;
 import com.kopiitem.pi.car.io.Engine;
 import com.kopiitem.pi.car.io.Servo;
 import java.io.IOException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 /**
  *
@@ -18,43 +16,24 @@ public class Car {
 
     private Engine engine;
 
-    public Car() {
-        try {
-            this.state = State.STEADY;
-            this.engine = new Engine();
-            this.servo = new Servo();
-        } catch (IOException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (InterruptedException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        }
+    public Car() throws IOException, InterruptedException {
+        this.state = State.STEADY;
+        this.engine = new Engine();
+        this.servo = new Servo();
     }
 
-    public Car(String name) {
-        try {
-            this.name = name;
-            this.state = State.STEADY;
-            this.engine = new Engine();
-            this.servo = new Servo();
-        } catch (IOException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (InterruptedException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        }
+    public Car(String name) throws IOException, InterruptedException {
+        this.name = name;
+        this.state = State.STEADY;
+        this.engine = new Engine();
+        this.servo = new Servo();
     }
 
-    public Car(String name, State state) {
-        try {
-            this.name = name;
-            this.state = state;
-            this.engine = new Engine();
-            this.servo = new Servo();
-        } catch (IOException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (InterruptedException ex) {
-            Logger.getLogger(Car.class.getName()).log(Level.SEVERE, null, ex);
-        }
-
+    public Car(String name, State state) throws IOException, InterruptedException {
+        this.name = name;
+        this.state = state;
+        this.engine = new Engine();
+        this.servo = new Servo();
     }
 
     public String getName() {

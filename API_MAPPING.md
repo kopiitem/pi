@@ -57,10 +57,12 @@ while (true) {
 #### Constructors
 
 ```java
-Car()                          // Default: STEADY state
-Car(String name)               // With name
-Car(String name, State state)  // With name and initial state
+Car() throws IOException, InterruptedException                          // Default: STEADY state
+Car(String name) throws IOException, InterruptedException               // With name
+Car(String name, State state) throws IOException, InterruptedException  // With name and initial state
 ```
+
+**Fixed**: constructors now declare `throws IOException, InterruptedException` instead of catching and logging them internally. This prevents a half-initialized `Car` (with a `null` servo) from being returned silently — callers (e.g. `App.main()`, which already declares `throws IOException, InterruptedException`) must now handle or propagate the failure.
 
 #### Methods
 
@@ -176,8 +178,8 @@ turn(ServoState state):
 ### 1.5 Distance - Sensor Interface
 
 **Class**: `com.kopiitem.pi.car.io.Distance`  
-**Type**: Ultrasonic sensor reader (Observable)  
-**Pattern**: Observable + Runnable
+**Type**: Ultrasonic sensor reader  
+**Pattern**: Listener + Runnable (replaces deprecated `Observable`)
 
 #### Methods
 
@@ -187,10 +189,23 @@ turn(ServoState state):
 | `doMeasureTheDistance` | `void doMeasureTheDistance()` | Trigger and read sensor | void |
 | `activatedServo` | `void activatedServo(Car car)` | Sweep servo to find path | void |
 | `terminate` | `void terminate()` | Stop sensor thread | void |
+| `addListener` | `void addListener(DistanceListener listener)` | Register a distance-change callback | void |
 | `getValue` | `int getValue()` | Get last distance reading | `int` (cm) |
 | `setValue` | `void setValue(int value)` | Set distance value | void |
 | `isRunning` | `boolean isRunning()` | Check if thread running | `boolean` |
 | `setRunning` | `void setRunning(boolean running)` | Control thread execution | void |
+
+#### DistanceListener Interface
+
+**Interface**: `com.kopiitem.pi.car.io.DistanceListener`
+
+```java
+public interface DistanceListener {
+    void onDistanceChanged(int distanceCm);
+}
+```
+
+Replaces the deprecated `java.util.Observer` callback. `Distance` keeps a `List<DistanceListener>` and invokes `onDistanceChanged(int)` directly — no `Object` casting required.
 
 #### GPIO Pin Mapping
 
@@ -205,15 +220,19 @@ private final GpioPinDigitalInput sensorEchoPin =
 
 ```java
 doMeasureTheDistance():
-  1. Set trigger pin HIGH for 10µs
-  2. Wait for echo pin to go HIGH
-  3. Record start time (nanoTime)
-  4. Wait for echo pin to go LOW
-  5. Record end time (nanoTime)
-  6. Calculate: distance = ((endTime - startTime) * 17150) / 1e9
+  1. Set trigger pin HIGH
+  2. Sleep 0ms + 10,000ns (10µs) — Thread.sleep(0, 10_000)
+  3. Set trigger pin LOW
+  4. Wait for echo pin to go HIGH
+  5. Record start time (nanoTime)
+  6. Wait for echo pin to go LOW
+  7. Record end time (nanoTime)
+  8. Calculate: distance = ((endTime - startTime) * 17150) / 1e9
   
   // 17150 = speed of sound in cm/µs / 2 (round trip)
 ```
+
+**Fixed**: previously used `Thread.sleep((long) 0.01)`, which truncated to `0` milliseconds and slept for no time at all. Now uses the `Thread.sleep(long millis, int nanos)` overload to actually wait ~10µs.
 
 #### Sensor Thread Loop
 
@@ -221,8 +240,7 @@ doMeasureTheDistance():
 run():
   while (isRunning()):
     doMeasureTheDistance()
-    setChanged()
-    notifyObservers(this.value)  // Notify Automation listener
+    notifyListeners(this.value)  // Calls each registered DistanceListener
 ```
 
 #### Obstacle Avoidance Logic
@@ -243,17 +261,17 @@ activatedServo(Car car):
 
 ---
 
-### 1.6 Automation - Observer Interface
+### 1.6 Automation - Listener Interface
 
 **Class**: `com.kopiitem.pi.car.manager.Automation`  
-**Type**: Autonomous driving controller (Observer)  
-**Pattern**: Observer
+**Type**: Autonomous driving controller  
+**Pattern**: Listener (registers a `DistanceListener` lambda)
 
 #### Constructors
 
 ```java
 Automation(Car car)
-// Initializes Distance sensor with Observer callback
+// Initializes Distance sensor with a DistanceListener lambda callback
 ```
 
 #### Methods
@@ -262,24 +280,25 @@ Automation(Car car)
 |--------|-----------|---------|---------|
 | `activated` | `void activated()` | Start autonomous mode | void |
 | `deActivated` | `void deActivated()` | Stop autonomous mode | void |
-| `update` | `void update(Observable, Object)` | Observer callback from Distance | void |
 | `getDistance` | `Distance getDistance()` | Get sensor instance | `Distance` |
 | `setDistance` | `void setDistance(Distance d)` | Set sensor instance | void |
 | `getCar` | `Car getCar()` | Get car instance | `Car` |
 | `setCar` | `void setCar(Car car)` | Set car instance | void |
 
-#### Observer Callback Logic
+#### Listener Callback Logic
 
 ```java
-update(Observable o, Object arg):
-  int distance = (int) arg
-  if (distance <= RANGE_DETECTION):  // 20 cm
+distance.addListener(distanceCm -> {
+  if (distanceCm <= RANGE_DETECTION):  // 20 cm
     car.run(STEADY)
     getDistance().activatedServo(car)
     car.run(FOWARD)
   else:
     // Continue in current state
+});
 ```
+
+No more `Observable`/`Observer`, and no `(int) arg` cast — the lambda receives a typed `int` directly.
 
 #### Activation Flow
 
@@ -405,15 +424,21 @@ else:
 
 | Class | Exception | Handling |
 |-------|-----------|----------|
-| `Car` | `IOException` | Log SEVERE, continue with null servo |
-| `Car` | `InterruptedException` | Log SEVERE, continue |
+| `Car` | `IOException` | Propagated via `throws` (fixed — was: log SEVERE, continue with null servo) |
+| `Car` | `InterruptedException` | Propagated via `throws` (fixed — was: log SEVERE, continue) |
 | `Distance` | `InterruptedException` | Print stack trace, continue |
 | `Servo` | `InterruptedException` | Log SEVERE, continue |
 
-### Issues
-- ⚠️ `IOException` in Car constructor leaves servo=null
-- ⚠️ Subsequent calls to `car.getServo().turn()` will throw NPE
-- ⚠️ No graceful degradation
+### Fixed Issues
+- ✅ `Car` constructors now `throws IOException, InterruptedException` instead of swallowing them — no more half-built `Car` with a `null` servo
+- ✅ Eliminates the previous NPE risk from `car.getServo().turn()` being called against a `null` servo after a silent init failure
+- ✅ Failure now surfaces immediately at construction time instead of at an unrelated later call site
+
+### Shutdown Robustness (New)
+- ✅ `CarManager` registers a JVM shutdown hook (`Runtime.getRuntime().addShutdownHook`) in every `build(...)`/constructor path
+- ✅ `Engine.shutdown()` forces `State.STEADY` (all motor pins LOW) before releasing the GPIO controller
+- ✅ `CarManager.shutdown()` is now idempotent via an `AtomicBoolean` guard — safe whether triggered by the `'z'` key, the shutdown hook, or both
+- ✅ Prevents motors from being left running if the process is killed (SIGTERM, Ctrl+C, crash) instead of exiting via the `'z'` key
 
 ---
 
@@ -422,10 +447,16 @@ else:
 **File**: `com.kopiitem.pi.car.util.Constants`
 
 ```java
-public class Constants {
-    public static int RANGE_DETECTION = 20;  // cm
+public final class Constants {
+
+    public static final int RANGE_DETECTION = 20;  // cm
+
+    private Constants() {
+    }
 }
 ```
+
+**Fixed**: `RANGE_DETECTION` is now `public static final` (immutable) inside a `final` class with a private constructor, preventing reassignment or instantiation.
 
 ---
 
@@ -459,10 +490,10 @@ public class Constants {
 
 The pi-car API is organized into distinct layers:
 
-1. **Control Layer** (`CarManager`) - User input handling
-2. **Automation Layer** (`Automation`, `Distance`) - Sensor-driven logic
-3. **Hardware Abstraction** (`Car`, `Engine`, `Servo`) - State and control
+1. **Control Layer** (`CarManager`) - User input handling, JVM shutdown hook registration
+2. **Automation Layer** (`Automation`, `Distance`, `DistanceListener`) - Sensor-driven logic via typed listener callback
+3. **Hardware Abstraction** (`Car`, `Engine`, `Servo`) - State and control; `Car` construction failures now propagate instead of being swallowed
 4. **Movement Models** (`Move` interface) - Extensible movement strategies
-5. **Utilities** (`Constants`) - Configuration
+5. **Utilities** (`Constants`) - Immutable configuration
 
-Each component has clear responsibilities and uses appropriate design patterns for extensibility and maintainability.
+Each component has clear responsibilities and uses appropriate design patterns for extensibility and maintainability. All five previously identified issues (timing bug, swallowed exceptions, missing shutdown hook, deprecated `Observable`/`Observer`, mutable constant) have been fixed and verified with a clean `mvn compile` build (zero deprecation warnings).

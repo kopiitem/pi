@@ -5,12 +5,15 @@ import com.kopiitem.pi.car.model.Car;
 import com.kopiitem.pi.car.model.Move;
 import com.kopiitem.pi.car.model.State;
 import java.util.Scanner;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  *
  * @author Donny Lie <lie.donny@gmail.com>
  */
 public class CarManager implements Runnable {
+
+    private final AtomicBoolean shutdownStarted = new AtomicBoolean(false);
 
     private Car car;
     private Automation automation;
@@ -24,12 +27,14 @@ public class CarManager implements Runnable {
         this.car = car;
         this.automation = new Automation(car);
         this.auto = false;
+        registerShutdownHook();
     }
 
     public CarManager build(Car car) {
         this.car = car;
         this.automation = new Automation(car);
         this.auto = false;
+        registerShutdownHook();
         return this;
     }
 
@@ -38,10 +43,18 @@ public class CarManager implements Runnable {
         this.automation = new Automation(car);
         this.auto = false;
         car.setState(State.STEADY);
+        registerShutdownHook();
         return this;
     }
 
+    private void registerShutdownHook() {
+        Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
+    }
+
     public void shutdown() {
+        if (!shutdownStarted.compareAndSet(false, true)) {
+            return;
+        }
         setAuto(false);
         getAutomation().deActivated();
         car.getEngine().shutdown();

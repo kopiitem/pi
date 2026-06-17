@@ -129,14 +129,15 @@
       "package": "com.kopiitem.pi.car.io",
       "type": "sensor",
       "layer": "hardware-abstraction",
-      "purpose": "Ultrasonic sensor reader (Observable)",
-      "pattern": ["Observable", "Runnable"],
+      "purpose": "Ultrasonic sensor reader",
+      "pattern": ["Listener", "Runnable"],
       "gpio_pins": [
         {"number": 28, "name": "trigger", "purpose": "Send ultrasonic pulse", "type": "output"},
         {"number": 29, "name": "echo", "purpose": "Measure echo duration", "type": "input"}
       ],
       "sensor_type": "HC-SR04",
       "measurement_interval_ms": 500,
+      "trigger_pulse_fix": "Thread.sleep((long) 0.01) truncated to 0ms; replaced with Thread.sleep(0, 10_000) for an accurate 10µs pulse",
       "methods": [
         {
           "name": "run",
@@ -152,6 +153,26 @@
           "name": "activatedServo",
           "signature": "void activatedServo(Car car)",
           "purpose": "Sweep servo to find clearer path"
+        },
+        {
+          "name": "addListener",
+          "signature": "void addListener(DistanceListener listener)",
+          "purpose": "Register a typed distance-change callback (replaces Observer)"
+        }
+      ]
+    },
+    {
+      "id": "distance-listener",
+      "name": "DistanceListener",
+      "package": "com.kopiitem.pi.car.io",
+      "type": "interface",
+      "layer": "hardware-abstraction",
+      "purpose": "Typed callback for distance sensor readings, replaces deprecated java.util.Observer",
+      "methods": [
+        {
+          "name": "onDistanceChanged",
+          "signature": "void onDistanceChanged(int distanceCm)",
+          "purpose": "Invoked by Distance whenever a new reading is taken"
         }
       ]
     },
@@ -162,9 +183,9 @@
       "type": "controller",
       "layer": "automation",
       "purpose": "Autonomous driving logic",
-      "pattern": "Observer",
-      "depends_on": ["distance", "car"],
-      "observes": "distance",
+      "pattern": "Listener",
+      "depends_on": ["distance", "distance-listener", "car"],
+      "listens_to": "distance",
       "obstacle_threshold_cm": 20,
       "methods": [
         {
@@ -275,9 +296,9 @@
     {
       "from": "automation",
       "to": "distance",
-      "type": "observes",
-      "pattern": "Observer",
-      "description": "Listens to distance sensor readings"
+      "type": "listens",
+      "pattern": "Listener",
+      "description": "Registers a DistanceListener lambda to receive distance sensor readings"
     },
     {
       "from": "automation",
@@ -314,8 +335,8 @@
       "steps": [
         "Distance sensor reads HC-SR04",
         "Distance.doMeasureTheDistance() calculates distance",
-        "distance.notifyObservers(value)",
-        "Automation.update() called via Observer pattern",
+        "distance.notifyListeners(value)",
+        "Automation's DistanceListener lambda invoked with typed int (no casting)",
         "if distance <= RANGE_DETECTION:",
         "  car.run(State.STEADY) - Stop",
         "  distance.activatedServo(car) - Sweep to find path",
@@ -348,9 +369,9 @@
       "benefit": "Encapsulate movement logic, easy to add new movements"
     },
     {
-      "name": "Observer Pattern",
-      "used_in": ["Distance", "Automation"],
-      "benefit": "Real-time sensor notifications, loose coupling"
+      "name": "Listener Pattern",
+      "used_in": ["Distance", "DistanceListener", "Automation"],
+      "benefit": "Real-time sensor notifications, loose coupling, type-safe (replaces deprecated java.util.Observable/Observer)"
     },
     {
       "name": "Builder Pattern",
@@ -425,6 +446,49 @@
     }
   },
   "constants": {
-    "RANGE_DETECTION": {"value": 20, "unit": "cm", "purpose": "Obstacle detection threshold"}
+    "RANGE_DETECTION": {"value": 20, "unit": "cm", "purpose": "Obstacle detection threshold", "modifiers": "public static final", "class_modifiers": "final, private constructor"}
+  },
+  "fixes_applied": [
+    {
+      "id": "timing-bug",
+      "component": "Distance",
+      "issue": "Thread.sleep((long) 0.01) truncated to 0ms, sensor trigger pulse was not 10us as intended",
+      "fix": "Replaced with Thread.sleep(0, 10_000) using the (millis, nanos) overload for an accurate 10us pulse",
+      "status": "fixed"
+    },
+    {
+      "id": "swallowed-exceptions",
+      "component": "Car",
+      "issue": "Constructors caught IOException/InterruptedException, logged them, and returned a half-built Car with servo=null",
+      "fix": "Constructors now declare throws IOException, InterruptedException so failures propagate instead of producing an object that NPEs later",
+      "status": "fixed"
+    },
+    {
+      "id": "no-shutdown-hook",
+      "component": "CarManager, Engine",
+      "issue": "Only the 'z' keyboard command stopped the motors; SIGTERM/crash left GPIO pins (and motors) in their last state",
+      "fix": "CarManager registers a JVM shutdown hook (Runtime.getRuntime().addShutdownHook) in every build()/constructor; Engine.shutdown() forces State.STEADY before releasing GPIO; shutdown() guarded by an AtomicBoolean to stay idempotent",
+      "status": "fixed"
+    },
+    {
+      "id": "deprecated-observable",
+      "component": "BaseGpio, Distance, Automation",
+      "issue": "BaseGpio extended java.util.Observable (deprecated since Java 9); Automation used java.util.Observer with unchecked (int) casts",
+      "fix": "BaseGpio no longer extends Observable; added DistanceListener functional interface; Distance maintains its own List<DistanceListener> and Automation registers a typed lambda",
+      "status": "fixed"
+    },
+    {
+      "id": "mutable-constant",
+      "component": "Constants",
+      "issue": "RANGE_DETECTION was public static (mutable) int in a non-final class with an implicit public constructor",
+      "fix": "Class marked final with a private constructor; RANGE_DETECTION marked public static final",
+      "status": "fixed"
+    }
+  ],
+  "verification": {
+    "build_command": "mvn compile",
+    "result": "BUILD SUCCESS",
+    "deprecation_warnings": 0,
+    "notes": "Previously mvn compile flagged BaseGpio.java for deprecated API usage (Observable); that warning is now gone."
   }
 }

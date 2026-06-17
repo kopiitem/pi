@@ -436,21 +436,26 @@ CarManager.run()  ← Main loop
 
 ---
 
-## 6. Observer Pattern Implementation
+## 6. Listener Pattern Implementation
 
 ### Distance ← Automation Relationship
 
-**Observable**: `Distance extends Observable`
+`Distance` no longer extends the deprecated `java.util.Observable`. It exposes a typed `DistanceListener` callback instead:
+
+```java
+public interface DistanceListener {
+    void onDistanceChanged(int distanceCm);
+}
+```
+
 ```java
 Distance dist = new Distance();
-dist.addObserver(new Observer() {
-    public void update(Observable o, Object arg) {
-        int distance = (int) arg;  // Distance in cm
-        if (distance <= RANGE_DETECTION) {
-            // Obstacle detected - activate avoidance
-            getCar().run(State.STEADY);
-            getDistance().activatedServo(getCar());
-        }
+dist.addListener(distanceCm -> {
+    if (distanceCm <= Constants.RANGE_DETECTION) {
+        // Obstacle detected - activate avoidance
+        getCar().run(State.STEADY);
+        getDistance().activatedServo(getCar());
+        getCar().run(State.FOWARD);
     }
 });
 ```
@@ -458,8 +463,8 @@ dist.addObserver(new Observer() {
 **Notification Flow**:
 1. Distance thread runs continuously
 2. Reads sensor every 500ms
-3. Calls `notifyObservers(value)`
-4. Automation's `update()` method invoked
+3. Calls `notifyListeners(value)`
+4. Automation's lambda callback invoked with a typed `int` (no casting)
 5. Triggers obstacle avoidance logic
 
 ---
@@ -472,10 +477,10 @@ dist.addObserver(new Observer() {
 - **Invoker**: `Engine`
 - **Benefit**: Easy to add new movement types
 
-### 7.2 Observer Pattern (Sensors)
-- **Subject**: `Distance extends Observable`
-- **Observer**: `Automation implements Observer`
-- **Pattern**: Real-time sensor notifications
+### 7.2 Listener Pattern (Sensors)
+- **Subject**: `Distance` (maintains a `List<DistanceListener>`)
+- **Listener**: `Automation` registers a lambda via `DistanceListener`
+- **Pattern**: Real-time, type-safe sensor notifications (replaces deprecated `Observable`/`Observer`)
 
 ### 7.3 Builder Pattern (Initialization)
 - **Builder**: `CarManager.build(Car)`
@@ -503,6 +508,7 @@ com.kopiitem.pi.car
 │   ├── BaseGpio                 [GPIO base]
 │   ├── Engine                   [Motor control]
 │   ├── Distance                 [Sensor control]
+│   ├── DistanceListener         [Typed sensor callback interface]
 │   └── Servo                    [Servo control]
 ├── model/                       [Domain & Movement]
 │   ├── Car                      [State container]
@@ -523,16 +529,18 @@ com.kopiitem.pi.car
 ### Strengths
 ✅ Clean separation of concerns (io → model → manager)
 ✅ Design patterns applied appropriately
-✅ Observer pattern for sensor integration
+✅ Listener pattern for sensor integration
 ✅ Command pattern for extensible movements
 ✅ Hardware abstraction layer
 
-### Areas for Improvement
-⚠️ Timing bug in Distance sensor (Thread.sleep(0.01))
-⚠️ Silent exception handling in Car initialization
-⚠️ No graceful shutdown on SIGTERM
-⚠️ Deprecated Observable/Observer
-⚠️ Single constant in Constants.java
+### Previously Identified Issues — Now Fixed
+✅ **Timing bug in Distance sensor** — `Thread.sleep((long) 0.01)` (truncated to 0ms) replaced with `Thread.sleep(0, 10_000)` for an accurate 10µs trigger pulse.
+✅ **Silent exception handling in Car initialization** — `Car` constructors now declare `throws IOException, InterruptedException` instead of swallowing them and returning a half-built object with a `null` servo.
+✅ **No graceful shutdown on SIGTERM** — `CarManager` registers a JVM shutdown hook (`Runtime.getRuntime().addShutdownHook`) that stops the motors and releases GPIO pins on any termination, not just the `'z'` key. `Engine.shutdown()` now forces `State.STEADY` before releasing GPIO. A `shutdownStarted` flag (`AtomicBoolean`) makes shutdown idempotent.
+✅ **Deprecated Observable/Observer** — `BaseGpio` no longer extends `Observable`. `Distance` exposes a typed `DistanceListener` functional interface; `Automation` registers a lambda instead of an anonymous `Observer` with unchecked casts.
+✅ **Mutable Constants.java** — `RANGE_DETECTION` is now `public static final` inside a `final` class with a private constructor, preventing reassignment and instantiation.
+
+All fixes verified with `mvn compile` — build succeeds with zero deprecation warnings (previously `BaseGpio.java` was flagged for deprecated API usage).
 
 ---
 

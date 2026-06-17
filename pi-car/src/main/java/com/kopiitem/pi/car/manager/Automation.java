@@ -4,8 +4,6 @@ import com.kopiitem.pi.car.io.Distance;
 import com.kopiitem.pi.car.model.Car;
 import com.kopiitem.pi.car.model.State;
 import com.kopiitem.pi.car.util.Constants;
-import java.util.Observable;
-import java.util.Observer;
 
 /**
  *
@@ -18,17 +16,14 @@ public class Automation {
 
     public Automation(Car car) {
         this.distance = new Distance();
-        this.distance.addObserver(new Observer() {
-            @Override
-            public void update(Observable o, Object arg) {
-                if (((int) arg) <= Constants.RANGE_DETECTION) {
-                    System.out.println("Bellow <= 20 is On, " + ((int) arg));
-                    getCar().run(State.STEADY);
-                    getDistance().activatedServo(getCar());
-                    getCar().run(State.FOWARD);
-                } else {
-                    System.out.println(o.toString() + " - Bellow >= 20 is On, " + ((int) arg));
-                }
+        this.distance.addListener(distanceCm -> {
+            if (distanceCm <= Constants.RANGE_DETECTION) {
+                System.out.println("Bellow <= 20 is On, " + distanceCm);
+                getCar().run(State.STEADY);
+                getDistance().activatedServo(getCar());
+                getCar().run(State.FOWARD);
+            } else {
+                System.out.println("Bellow >= 20 is On, " + distanceCm);
             }
         });
 
