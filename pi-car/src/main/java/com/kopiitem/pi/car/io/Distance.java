@@ -6,6 +6,8 @@ import com.pi4j.io.gpio.GpioPinDigitalInput;
 import com.pi4j.io.gpio.GpioPinDigitalOutput;
 import com.pi4j.io.gpio.PinPullResistance;
 import com.pi4j.io.gpio.RaspiPin;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -18,12 +20,24 @@ public class Distance extends BaseGpio implements Runnable {
     private final GpioPinDigitalOutput sensorTriggerPin = getGpio().provisionDigitalOutputPin(RaspiPin.GPIO_28); // Trigger pin as OUTPUT
     private final GpioPinDigitalInput sensorEchoPin = getGpio().provisionDigitalInputPin(RaspiPin.GPIO_29, PinPullResistance.PULL_DOWN); // Echo pin as INPUT     
 
+    private final List<DistanceListener> listeners = new ArrayList<>();
+
     private int value;
 
     public boolean running;
 
     public Distance() {
         this.running = false;
+    }
+
+    public void addListener(DistanceListener listener) {
+        listeners.add(listener);
+    }
+
+    private void notifyListeners(int distanceCm) {
+        for (DistanceListener listener : listeners) {
+            listener.onDistanceChanged(distanceCm);
+        }
     }
 
     public void terminate() {
@@ -62,8 +76,7 @@ public class Distance extends BaseGpio implements Runnable {
     public void run() {
         while (isRunning()) {
             doMeasureTheDistance();
-            setChanged();
-            notifyObservers(this.value);
+            notifyListeners(this.value);
         }
     }
 
@@ -71,7 +84,7 @@ public class Distance extends BaseGpio implements Runnable {
         try {
             Thread.sleep(500);
             sensorTriggerPin.high(); // Make trigger pin HIGH
-            Thread.sleep((long) 0.01);// Delay for 10 microseconds
+            Thread.sleep(0, 10_000); // Delay for 10 microseconds (10,000 nanoseconds)
             sensorTriggerPin.low(); //Make trigger pin LOW
 
             while (sensorEchoPin.isLow()) { //Wait until the ECHO pin gets HIGH

@@ -28,6 +28,7 @@ public class Engine extends BaseGpio {
     }
 
     public void shutdown() {
+        execute(State.STEADY);
         gpio.shutdown();
     }
 

@@ -1,0 +1,494 @@
+{
+  "project": {
+    "name": "pi-car",
+    "description": "Raspberry Pi 3B+ autonomous vehicle with manual and self-driving modes",
+    "package": "com.kopiitem.pi.car",
+    "author": "Donny Lie",
+    "version": "1.0-SNAPSHOT"
+  },
+  "components": [
+    {
+      "id": "app",
+      "name": "App",
+      "package": "com.kopiitem.pi.car",
+      "type": "entry-point",
+      "purpose": "Main entry point",
+      "methods": [
+        {
+          "name": "main",
+          "signature": "public static void main(String[] args)",
+          "purpose": "Application entry point"
+        }
+      ]
+    },
+    {
+      "id": "car-manager",
+      "name": "CarManager",
+      "package": "com.kopiitem.pi.car.manager",
+      "type": "controller",
+      "layer": "control",
+      "purpose": "Main control loop, reads keyboard input, manages car state",
+      "dependencies": ["car", "automation", "servo"],
+      "methods": [
+        {
+          "name": "run",
+          "signature": "void run()",
+          "purpose": "Main event loop - reads keyboard input and controls car"
+        },
+        {
+          "name": "build",
+          "signature": "CarManager build(Car car)",
+          "purpose": "Builder pattern initialization"
+        },
+        {
+          "name": "shutdown",
+          "signature": "void shutdown()",
+          "purpose": "Graceful cleanup and exit"
+        }
+      ],
+      "keyboard_controls": {
+        "w": "FOWARD",
+        "x": "BACKWARD",
+        "a": "LEFT",
+        "d": "RIGHT",
+        "s": "STEADY",
+        "r": "Toggle AUTO mode",
+        "t": "Servo LEFT",
+        "y": "Servo MIDDLE",
+        "u": "Servo RIGHT",
+        "z": "Shutdown"
+      }
+    },
+    {
+      "id": "car",
+      "name": "Car",
+      "package": "com.kopiitem.pi.car.model",
+      "type": "model",
+      "layer": "hardware-abstraction",
+      "purpose": "State container and hardware orchestrator",
+      "dependencies": ["engine", "servo"],
+      "state": "FOWARD, BACKWARD, LEFT, RIGHT, STEADY",
+      "methods": [
+        {
+          "name": "run",
+          "signature": "void run()",
+          "purpose": "Execute current state via Engine"
+        },
+        {
+          "name": "setState",
+          "signature": "void setState(State state)",
+          "purpose": "Update car state"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "name": "Engine",
+      "package": "com.kopiitem.pi.car.io",
+      "type": "controller",
+      "layer": "hardware-abstraction",
+      "purpose": "GPIO motor control",
+      "pattern": "Command Pattern",
+      "gpio_pins": [
+        {"number": 22, "name": "msl1", "purpose": "Left motor forward", "type": "output"},
+        {"number": 23, "name": "msl2", "purpose": "Left motor backward", "type": "output"},
+        {"number": 24, "name": "msr1", "purpose": "Right motor forward", "type": "output"},
+        {"number": 25, "name": "msr2", "purpose": "Right motor backward", "type": "output"}
+      ],
+      "methods": [
+        {
+          "name": "execute",
+          "signature": "void execute(State state)",
+          "purpose": "Execute movement strategy for state"
+        }
+      ]
+    },
+    {
+      "id": "servo",
+      "name": "Servo",
+      "package": "com.kopiitem.pi.car.io",
+      "type": "controller",
+      "layer": "hardware-abstraction",
+      "purpose": "GPIO servo motor control",
+      "servo_states": {
+        "LEFT": {"pulse_width": 200, "description": "Sensor points left"},
+        "MIDDLE": {"pulse_width": 150, "description": "Sensor points forward"},
+        "RIGHT": {"pulse_width": 100, "description": "Sensor points right"}
+      },
+      "methods": [
+        {
+          "name": "turn",
+          "signature": "void turn(ServoState state)",
+          "purpose": "Rotate servo to specified angle"
+        }
+      ]
+    },
+    {
+      "id": "distance",
+      "name": "Distance",
+      "package": "com.kopiitem.pi.car.io",
+      "type": "sensor",
+      "layer": "hardware-abstraction",
+      "purpose": "Ultrasonic sensor reader",
+      "pattern": ["Listener", "Runnable"],
+      "gpio_pins": [
+        {"number": 28, "name": "trigger", "purpose": "Send ultrasonic pulse", "type": "output"},
+        {"number": 29, "name": "echo", "purpose": "Measure echo duration", "type": "input"}
+      ],
+      "sensor_type": "HC-SR04",
+      "measurement_interval_ms": 500,
+      "trigger_pulse_fix": "Thread.sleep((long) 0.01) truncated to 0ms; replaced with Thread.sleep(0, 10_000) for an accurate 10µs pulse",
+      "methods": [
+        {
+          "name": "run",
+          "signature": "void run()",
+          "purpose": "Background thread loop"
+        },
+        {
+          "name": "doMeasureTheDistance",
+          "signature": "void doMeasureTheDistance()",
+          "purpose": "Trigger and read sensor"
+        },
+        {
+          "name": "activatedServo",
+          "signature": "void activatedServo(Car car)",
+          "purpose": "Sweep servo to find clearer path"
+        },
+        {
+          "name": "addListener",
+          "signature": "void addListener(DistanceListener listener)",
+          "purpose": "Register a typed distance-change callback (replaces Observer)"
+        }
+      ]
+    },
+    {
+      "id": "distance-listener",
+      "name": "DistanceListener",
+      "package": "com.kopiitem.pi.car.io",
+      "type": "interface",
+      "layer": "hardware-abstraction",
+      "purpose": "Typed callback for distance sensor readings, replaces deprecated java.util.Observer",
+      "methods": [
+        {
+          "name": "onDistanceChanged",
+          "signature": "void onDistanceChanged(int distanceCm)",
+          "purpose": "Invoked by Distance whenever a new reading is taken"
+        }
+      ]
+    },
+    {
+      "id": "automation",
+      "name": "Automation",
+      "package": "com.kopiitem.pi.car.manager",
+      "type": "controller",
+      "layer": "automation",
+      "purpose": "Autonomous driving logic",
+      "pattern": "Listener",
+      "depends_on": ["distance", "distance-listener", "car"],
+      "listens_to": "distance",
+      "obstacle_threshold_cm": 20,
+      "methods": [
+        {
+          "name": "activated",
+          "signature": "void activated()",
+          "purpose": "Start autonomous mode"
+        },
+        {
+          "name": "deActivated",
+          "signature": "void deActivated()",
+          "purpose": "Stop autonomous mode"
+        },
+        {
+          "name": "update",
+          "signature": "void update(Observable o, Object arg)",
+          "purpose": "Observer callback from Distance sensor"
+        }
+      ]
+    },
+    {
+      "id": "move-interface",
+      "name": "Move",
+      "package": "com.kopiitem.pi.car.model",
+      "type": "interface",
+      "layer": "movement-model",
+      "pattern": "Command Pattern",
+      "purpose": "Encapsulate movement logic",
+      "methods": [
+        {
+          "name": "execute",
+          "signature": "void execute(Engine engine)",
+          "purpose": "Execute movement strategy"
+        }
+      ],
+      "implementations": [
+        {
+          "name": "Foward",
+          "gpio_state": {"msl1": "HIGH", "msr1": "HIGH"}
+        },
+        {
+          "name": "Back",
+          "gpio_state": {"msl2": "HIGH", "msr2": "HIGH"}
+        },
+        {
+          "name": "Left",
+          "gpio_state": {"msl1": "HIGH", "msr2": "HIGH"}
+        },
+        {
+          "name": "Right",
+          "gpio_state": {"msr1": "HIGH", "msl2": "HIGH"}
+        },
+        {
+          "name": "Steady",
+          "gpio_state": {"msl1": "LOW", "msl2": "LOW", "msr1": "LOW", "msr2": "LOW"}
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "from": "app",
+      "to": "car-manager",
+      "type": "creates",
+      "description": "Creates and starts CarManager"
+    },
+    {
+      "from": "app",
+      "to": "car",
+      "type": "creates",
+      "description": "Creates Car instance with name 'Kensei' and STEADY state"
+    },
+    {
+      "from": "car-manager",
+      "to": "car",
+      "type": "manages",
+      "description": "Controls car state via setState/run"
+    },
+    {
+      "from": "car-manager",
+      "to": "automation",
+      "type": "toggles",
+      "description": "Activates/deactivates autonomous mode"
+    },
+    {
+      "from": "car-manager",
+      "to": "servo",
+      "type": "controls",
+      "description": "User can control servo via t/y/u keys"
+    },
+    {
+      "from": "car",
+      "to": "engine",
+      "type": "uses",
+      "description": "Executes movements via Engine"
+    },
+    {
+      "from": "car",
+      "to": "servo",
+      "type": "has",
+      "description": "Car contains Servo instance"
+    },
+    {
+      "from": "engine",
+      "to": "move-interface",
+      "type": "executes",
+      "description": "Executes Movement commands"
+    },
+    {
+      "from": "automation",
+      "to": "distance",
+      "type": "listens",
+      "pattern": "Listener",
+      "description": "Registers a DistanceListener lambda to receive distance sensor readings"
+    },
+    {
+      "from": "automation",
+      "to": "car",
+      "type": "controls",
+      "description": "Changes car state on obstacle detection"
+    },
+    {
+      "from": "distance",
+      "to": "servo",
+      "type": "controls",
+      "description": "Sweeps servo during obstacle avoidance"
+    }
+  ],
+  "flows": [
+    {
+      "id": "manual-forward",
+      "name": "Manual Forward Movement",
+      "trigger": "User presses 'w'",
+      "steps": [
+        "CarManager.run() detects 'w'",
+        "car.setState(State.FOWARD)",
+        "car.run()",
+        "engine.execute(State.FOWARD)",
+        "Create Foward() command",
+        "Foward.execute(engine) sets msl1=HIGH, msr1=HIGH",
+        "Motors rotate forward"
+      ]
+    },
+    {
+      "id": "autonomous-obstacle-avoidance",
+      "name": "Autonomous Obstacle Avoidance",
+      "trigger": "distance <= 20cm",
+      "steps": [
+        "Distance sensor reads HC-SR04",
+        "Distance.doMeasureTheDistance() calculates distance",
+        "distance.notifyListeners(value)",
+        "Automation's DistanceListener lambda invoked with typed int (no casting)",
+        "if distance <= RANGE_DETECTION:",
+        "  car.run(State.STEADY) - Stop",
+        "  distance.activatedServo(car) - Sweep to find path",
+        "    servo.turn(RIGHT) - Measure right",
+        "    servo.turn(LEFT) - Measure left",
+        "    Compare distances",
+        "    car.run(clearer_direction)",
+        "  servo.turn(MIDDLE)",
+        "  car.run(State.FOWARD) - Resume forward"
+      ]
+    },
+    {
+      "id": "servo-rotation",
+      "name": "Servo Motor Rotation",
+      "trigger": "User presses t/y/u or autonomy requests turn",
+      "steps": [
+        "Servo.turn(ServoState) called",
+        "Get current pulse width",
+        "Loop to target pulse width with 10ms increments",
+        "ServoDriver.setServoPulseWidth(value)",
+        "RPIServoBlaster applies PWM signal",
+        "Servo motor rotates to angle"
+      ]
+    }
+  ],
+  "patterns": [
+    {
+      "name": "Command Pattern",
+      "used_in": ["Engine", "Move interface"],
+      "benefit": "Encapsulate movement logic, easy to add new movements"
+    },
+    {
+      "name": "Listener Pattern",
+      "used_in": ["Distance", "DistanceListener", "Automation"],
+      "benefit": "Real-time sensor notifications, loose coupling, type-safe (replaces deprecated java.util.Observable/Observer)"
+    },
+    {
+      "name": "Builder Pattern",
+      "used_in": ["CarManager"],
+      "benefit": "Fluent API for initialization"
+    },
+    {
+      "name": "Template Method",
+      "used_in": ["BaseGpio"],
+      "benefit": "Shared GPIO initialization and shutdown"
+    },
+    {
+      "name": "Singleton",
+      "used_in": ["GpioController"],
+      "benefit": "Single GPIO instance across all classes"
+    }
+  ],
+  "hardware": {
+    "board": "Raspberry Pi 3B+",
+    "motor_driver": "L298N",
+    "sensor": "HC-SR04 Ultrasonic",
+    "servo": "Standard servo motor",
+    "library": "Pi4J 1.1"
+  },
+  "layers": [
+    {
+      "name": "Entry Point",
+      "components": ["App"]
+    },
+    {
+      "name": "Control Layer",
+      "components": ["CarManager"],
+      "responsibility": "User input handling, mode switching"
+    },
+    {
+      "name": "Automation Layer",
+      "components": ["Automation", "Distance"],
+      "responsibility": "Sensor-driven autonomous logic"
+    },
+    {
+      "name": "Hardware Abstraction",
+      "components": ["Car", "Engine", "Servo"],
+      "responsibility": "State management and GPIO control"
+    },
+    {
+      "name": "Movement Model",
+      "components": ["Move interface", "Foward", "Back", "Left", "Right", "Steady"],
+      "responsibility": "Encapsulate movement strategies"
+    },
+    {
+      "name": "Utilities",
+      "components": ["Constants"],
+      "responsibility": "Configuration"
+    }
+  ],
+  "gpio_mapping": {
+    "motors": {
+      "GPIO_22": {"pin": "msl1", "purpose": "Left motor forward"},
+      "GPIO_23": {"pin": "msl2", "purpose": "Left motor backward"},
+      "GPIO_24": {"pin": "msr1", "purpose": "Right motor forward"},
+      "GPIO_25": {"pin": "msr2", "purpose": "Right motor backward"}
+    },
+    "sensor": {
+      "GPIO_28": {"pin": "trigger", "purpose": "Ultrasonic trigger"},
+      "GPIO_29": {"pin": "echo", "purpose": "Ultrasonic echo"}
+    },
+    "servo": {
+      "driver": "RPIServoBlaster",
+      "control": "PWM pulse width",
+      "min_width": 100,
+      "max_width": 200
+    }
+  },
+  "constants": {
+    "RANGE_DETECTION": {"value": 20, "unit": "cm", "purpose": "Obstacle detection threshold", "modifiers": "public static final", "class_modifiers": "final, private constructor"}
+  },
+  "fixes_applied": [
+    {
+      "id": "timing-bug",
+      "component": "Distance",
+      "issue": "Thread.sleep((long) 0.01) truncated to 0ms, sensor trigger pulse was not 10us as intended",
+      "fix": "Replaced with Thread.sleep(0, 10_000) using the (millis, nanos) overload for an accurate 10us pulse",
+      "status": "fixed"
+    },
+    {
+      "id": "swallowed-exceptions",
+      "component": "Car",
+      "issue": "Constructors caught IOException/InterruptedException, logged them, and returned a half-built Car with servo=null",
+      "fix": "Constructors now declare throws IOException, InterruptedException so failures propagate instead of producing an object that NPEs later",
+      "status": "fixed"
+    },
+    {
+      "id": "no-shutdown-hook",
+      "component": "CarManager, Engine",
+      "issue": "Only the 'z' keyboard command stopped the motors; SIGTERM/crash left GPIO pins (and motors) in their last state",
+      "fix": "CarManager registers a JVM shutdown hook (Runtime.getRuntime().addShutdownHook) in every build()/constructor; Engine.shutdown() forces State.STEADY before releasing GPIO; shutdown() guarded by an AtomicBoolean to stay idempotent",
+      "status": "fixed"
+    },
+    {
+      "id": "deprecated-observable",
+      "component": "BaseGpio, Distance, Automation",
+      "issue": "BaseGpio extended java.util.Observable (deprecated since Java 9); Automation used java.util.Observer with unchecked (int) casts",
+      "fix": "BaseGpio no longer extends Observable; added DistanceListener functional interface; Distance maintains its own List<DistanceListener> and Automation registers a typed lambda",
+      "status": "fixed"
+    },
+    {
+      "id": "mutable-constant",
+      "component": "Constants",
+      "issue": "RANGE_DETECTION was public static (mutable) int in a non-final class with an implicit public constructor",
+      "fix": "Class marked final with a private constructor; RANGE_DETECTION marked public static final",
+      "status": "fixed"
+    }
+  ],
+  "verification": {
+    "build_command": "mvn compile",
+    "result": "BUILD SUCCESS",
+    "deprecation_warnings": 0,
+    "notes": "Previously mvn compile flagged BaseGpio.java for deprecated API usage (Observable); that warning is now gone."
+  }
+}
