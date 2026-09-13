@@ -62,8 +62,8 @@ public class CarManager implements Runnable {
 
     @Override
     public void run() {
+        Scanner sc = new Scanner(System.in);
         while (true) {
-            Scanner sc = new Scanner(System.in);
             String in = sc.nextLine();
             if (in.isEmpty()) {
                 continue;

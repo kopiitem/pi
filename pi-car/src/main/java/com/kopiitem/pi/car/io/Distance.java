@@ -24,7 +24,7 @@ public class Distance extends BaseGpio implements Runnable {
 
     private int value;
 
-    public boolean running;
+    private volatile boolean running;
 
     public Distance() {
         this.running = false;

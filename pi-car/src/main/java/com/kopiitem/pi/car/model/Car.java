@@ -52,11 +52,11 @@ public class Car {
         this.state = state;
     }
 
-    public void run() {
+    public synchronized void run() {
         this.engine.execute(getState());
     }
 
-    public void run(State state) {
+    public synchronized void run(State state) {
         this.state = state;
         this.engine.execute(getState());
     }
